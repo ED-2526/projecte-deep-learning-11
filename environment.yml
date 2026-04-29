@@ -13,8 +13,9 @@ dependencies:
   - wandb
   - onnxruntime
   - ipykernel
+  - pandas
+  - matplotlib
 - numpy
 - tqdm
 - tensorboard
 - protobuf
-
