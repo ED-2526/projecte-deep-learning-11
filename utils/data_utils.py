@@ -420,3 +420,72 @@ def create_dataloaders(
     )
 
     return train_loader, val_loader, test_loader
+
+
+#Experiment2
+
+def filter_top_k_classes(image_paths, labels, idx_to_class, top_k=14):
+    """
+    Conserva només les top_k classes amb més imatges.
+
+    Important:
+    Després de filtrar, reindexem les labels perquè siguin:
+        0, 1, 2, ..., num_classes-1
+
+    Això és necessari perquè CrossEntropyLoss espera labels consecutives.
+    """
+
+    counts = Counter(labels)
+
+    # Agafem les classes més grans segons nombre d'imatges
+    top_labels = [
+        label
+        for label, _ in counts.most_common(top_k)
+    ]
+
+    top_labels_set = set(top_labels)
+
+    removed_classes = [
+        idx_to_class[label]
+        for label in counts.keys()
+        if label not in top_labels_set
+    ]
+
+    print(f"\nConservant les {top_k} classes amb més imatges.")
+    print(f"Eliminant {len(removed_classes)} classes:")
+    for class_name in removed_classes:
+        print(f"  - {class_name}")
+
+    # Nou mapping classe -> índex
+    # Mantinc l'ordre de major a menor nombre d'imatges perquè sigui clar.
+    kept_class_names = [idx_to_class[label] for label in top_labels]
+
+    new_class_to_idx = {
+        class_name: new_idx
+        for new_idx, class_name in enumerate(kept_class_names)
+    }
+
+    new_idx_to_class = {
+        new_idx: class_name
+        for class_name, new_idx in new_class_to_idx.items()
+    }
+
+    filtered_paths = []
+    filtered_labels = []
+
+    for image_path, old_label in zip(image_paths, labels):
+        if old_label in top_labels_set:
+            old_class_name = idx_to_class[old_label]
+            new_label = new_class_to_idx[old_class_name]
+
+            filtered_paths.append(image_path)
+            filtered_labels.append(new_label)
+
+    print(
+        f"Després del filtre top-{top_k}: "
+        f"{len(filtered_paths)} imatges, {len(new_class_to_idx)} classes.\n"
+    )
+
+    return filtered_paths, filtered_labels, new_class_to_idx, new_idx_to_class
+
+

@@ -14,6 +14,7 @@ from utils.data_utils import (
     split_dataset,
     print_split_summary,
     create_dataloaders,
+    filter_top_k_classes,
 )
 
 from models.transfer_model import create_resnet_model
@@ -47,7 +48,7 @@ def load_checkpoint(model, checkpoint_path, device):
 
 def main():
     config = {
-        "experiment_name": "exp1_resnet18_all_classes_no_aug_no_class_weights",
+        "experiment_name": "exp2_resnet18_top14_classes_no_aug_no_class_weights",
         "dataset_root": "/home/datasets/wikiart/",  # CANVIA AIXÒ SI CAL
         "model_name": "resnet18",
         "feature_extraction": True,
@@ -67,6 +68,8 @@ def main():
         "cache_num_workers": 12,
         "use_class_weights": False,
         "use_augmentation": False,
+        "use_top_k_classes": True,
+        "top_k_classes": 14,
     }
 
     set_seed(config["random_seed"])
@@ -113,6 +116,23 @@ def main():
         idx_to_class=idx_to_class,
         stats=stats,
     )
+    # 1.1. Experiment 2: conservar només les top-k classes més grans
+    if config["use_top_k_classes"]:
+        image_paths, labels, class_to_idx, idx_to_class = filter_top_k_classes(
+            image_paths=image_paths,
+            labels=labels,
+            idx_to_class=idx_to_class,
+            top_k=config["top_k_classes"],
+        )
+
+        print("\nResum després de filtrar top-k classes:")
+        print_dataset_summary(
+            image_paths=image_paths,
+            labels=labels,
+            class_to_idx=class_to_idx,
+            idx_to_class=idx_to_class,
+            stats=stats,
+        )
 
     num_classes = len(class_to_idx)
     print(f"Nombre de classes utilitzades: {num_classes}")
@@ -196,7 +216,7 @@ def main():
         criterion=criterion,
         device=device,
         idx_to_class=idx_to_class,
-        save_dir="results/figures",
+        save_dir=os.path.join("results", "figures", config["experiment_name"]),
     )
     wandb.finish()
 
