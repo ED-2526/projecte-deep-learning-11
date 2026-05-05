@@ -1,9 +1,17 @@
 import os
 import hashlib
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 
 from PIL import Image
 from sklearn.model_selection import train_test_split
+
+import torch
+from torch.utils.data import DataLoader
+from torchvision import transforms
+from tqdm import tqdm
+
+from utils.dataset import ImageDataset
 
 
 VALID_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
@@ -11,15 +19,15 @@ VALID_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
 def is_image_file(filename):
     """
-    Comprova si un fitxer té extensió d'imatge vàlida.
+    Comprova si el fitxer té extensió d'imatge.
     """
     return filename.lower().endswith(VALID_EXTENSIONS)
 
 
 def check_image_is_valid(image_path):
     """
-    Intenta obrir una imatge per comprovar que no està corrupta.
-    No carrega la imatge completa per entrenar, només valida el fitxer.
+    Comprova que la imatge no està corrupta.
+    Pot trigar si el dataset és gran.
     """
     try:
         with Image.open(image_path) as img:
@@ -31,8 +39,8 @@ def check_image_is_valid(image_path):
 
 def compute_file_hash(file_path):
     """
-    Calcula un hash del fitxer per detectar duplicats exactes.
-    Això ens ajuda a evitar fuga de dades entre train i test.
+    Calcula un hash per detectar duplicats exactes.
+    Important per evitar fuga de dades entre train i test.
     """
     hasher = hashlib.md5()
 
@@ -42,26 +50,138 @@ def compute_file_hash(file_path):
     return hasher.hexdigest()
 
 
+def get_cached_image_path(source_root, cache_root, image_path):
+    """
+    Retorna una ruta determinista dins el cache per una imatge original.
+    """
+    relative_path = os.path.relpath(image_path, source_root)
+    class_name = os.path.dirname(relative_path)
+    filename = os.path.basename(relative_path)
+    stem, _ = os.path.splitext(filename)
+    path_hash = hashlib.md5(relative_path.encode("utf-8")).hexdigest()[:10]
+
+    return os.path.join(cache_root, class_name, f"{stem}_{path_hash}.jpg")
+
+
+def resize_and_save_cached_image(args):
+    source_root, cache_root, image_path, image_size, force_rebuild, jpeg_quality = args
+    cached_path = get_cached_image_path(source_root, cache_root, image_path)
+    os.makedirs(os.path.dirname(cached_path), exist_ok=True)
+
+    if os.path.exists(cached_path) and not force_rebuild:
+        return "skipped_existing"
+
+    resampling = getattr(Image, "Resampling", Image).BILINEAR
+
+    try:
+        with Image.open(image_path) as img:
+            img = img.convert("RGB")
+            img = img.resize((image_size, image_size), resampling)
+            img.save(cached_path, format="JPEG", quality=jpeg_quality, optimize=True)
+    except Exception:
+        return "skipped_corrupted"
+
+    return "processed"
+
+
+def prepare_resized_cache_dataset(
+    source_root,
+    cache_root,
+    image_size=224,
+    force_rebuild=False,
+    jpeg_quality=90,
+    num_workers=8,
+):
+    """
+    Crea un cache local amb les imatges ja redimensionades.
+
+    Això fa que cada epoch no hagi de llegir les imatges originals grans
+    ni executar Resize sobre totes les imatges.
+    """
+    os.makedirs(cache_root, exist_ok=True)
+    marker_path = os.path.join(cache_root, f".cache_complete_{image_size}.txt")
+
+    if os.path.exists(marker_path) and not force_rebuild:
+        print(f"Cache redimensionat trobat: {cache_root}")
+        return cache_root
+
+    image_paths = []
+    class_names = sorted([
+        class_name
+        for class_name in os.listdir(source_root)
+        if os.path.isdir(os.path.join(source_root, class_name))
+    ])
+
+    for class_name in class_names:
+        class_dir = os.path.join(source_root, class_name)
+
+        for filename in sorted(os.listdir(class_dir)):
+            if is_image_file(filename):
+                image_paths.append(os.path.join(class_dir, filename))
+
+    print(
+        f"Creant cache redimensionat a {cache_root} "
+        f"({len(image_paths)} imatges, {image_size}x{image_size})"
+    )
+
+    stats = {
+        "processed": 0,
+        "skipped_existing": 0,
+        "skipped_corrupted": 0,
+    }
+
+    worker_args = [
+        (source_root, cache_root, image_path, image_size, force_rebuild, jpeg_quality)
+        for image_path in image_paths
+    ]
+
+    if num_workers > 1:
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            results = executor.map(resize_and_save_cached_image, worker_args)
+
+            for result in tqdm(results, total=len(worker_args), desc="Caching resized images"):
+                stats[result] += 1
+    else:
+        for args in tqdm(worker_args, desc="Caching resized images"):
+            result = resize_and_save_cached_image(args)
+            stats[result] += 1
+
+    with open(marker_path, "w", encoding="utf-8") as marker:
+        marker.write(
+            f"source_root={source_root}\n"
+            f"image_size={image_size}\n"
+            f"processed={stats['processed']}\n"
+            f"skipped_existing={stats['skipped_existing']}\n"
+            f"skipped_corrupted={stats['skipped_corrupted']}\n"
+        )
+
+    print(
+        "Cache acabat: "
+        f"processed={stats['processed']}, "
+        f"skipped_existing={stats['skipped_existing']}, "
+        f"skipped_corrupted={stats['skipped_corrupted']}"
+    )
+
+    return cache_root
+
+
 def load_wikiart_dataset(root_dir, remove_duplicates=True, check_corrupted=True):
     """
-    Llegeix un dataset organitzat en carpetes per classe.
+    Carrega un dataset organitzat en carpetes per classe.
 
-    Estructura esperada:
+    Exemple:
         root_dir/
             Impressionism/
                 img1.jpg
-                img2.jpg
             Cubism/
-                img3.jpg
-            Realism/
-                img4.jpg
+                img2.jpg
 
     Retorna:
-        image_paths: llista de paths d'imatges
-        labels: llista d'etiquetes numèriques
-        class_to_idx: diccionari classe -> índex
-        idx_to_class: diccionari índex -> classe
-        stats: informació de neteja
+        image_paths
+        labels
+        class_to_idx
+        idx_to_class
+        stats
     """
 
     image_paths = []
@@ -121,8 +241,7 @@ def load_wikiart_dataset(root_dir, remove_duplicates=True, check_corrupted=True)
 
 def get_class_distribution(labels, idx_to_class):
     """
-    Calcula quantes imatges hi ha per classe.
-    Retorna una llista ordenada de major a menor nombre d'imatges.
+    Retorna la distribució de classes ordenada de més gran a més petita.
     """
     counts = Counter(labels)
 
@@ -138,8 +257,7 @@ def get_class_distribution(labels, idx_to_class):
 
 def print_dataset_summary(image_paths, labels, class_to_idx, idx_to_class, stats):
     """
-    Imprimeix un resum senzill del dataset.
-    Ens serveix per veure ràpidament mida, classes i desbalanceig.
+    Mostra un resum del dataset carregat.
     """
     distribution = get_class_distribution(labels, idx_to_class)
 
@@ -166,14 +284,12 @@ def print_dataset_summary(image_paths, labels, class_to_idx, idx_to_class, stats
 
 def split_dataset(image_paths, labels, val_size=0.15, test_size=0.15, random_state=42):
     """
-    Divideix el dataset en train, validation i test.
+    Split 70/15/15 estratificat.
 
-    Important:
-    Fem split estratificat perquè el dataset està desbalancejat.
-    Això intenta mantenir proporcions semblants de classes a cada partició.
+    Estratificat vol dir que intenta mantenir la proporció de classes
+    a train, validation i test.
     """
 
-    # Primer separem test
     train_val_paths, test_paths, train_val_labels, test_labels = train_test_split(
         image_paths,
         labels,
@@ -182,7 +298,6 @@ def split_dataset(image_paths, labels, val_size=0.15, test_size=0.15, random_sta
         stratify=labels,
     )
 
-    # Ara separem validation dins del que queda
     val_relative_size = val_size / (1.0 - test_size)
 
     train_paths, val_paths, train_labels, val_labels = train_test_split(
@@ -198,10 +313,110 @@ def split_dataset(image_paths, labels, val_size=0.15, test_size=0.15, random_sta
 
 def print_split_summary(train_labels, val_labels, test_labels):
     """
-    Imprimeix quantes imatges hi ha a train, validation i test.
+    Mostra mides finals dels conjunts.
     """
     print("\n========== SPLIT SUMMARY ==========")
     print(f"Train images: {len(train_labels)}")
     print(f"Val images:   {len(val_labels)}")
     print(f"Test images:  {len(test_labels)}")
     print("===================================\n")
+
+
+def get_transforms(image_size=224, resize_images=True):
+    """
+    Transforms per ResNet preentrenada.
+
+    Important:
+    Això NO és data augmentation.
+    Resize + ToTensor + Normalize és preprocessament necessari.
+    """
+
+    common_transforms = []
+
+    if resize_images:
+        common_transforms.append(transforms.Resize((image_size, image_size)))
+
+    common_transforms.extend([
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
+    ])
+
+    train_transform = transforms.Compose(common_transforms)
+    val_test_transform = transforms.Compose(common_transforms)
+
+    return train_transform, val_test_transform
+
+
+def create_dataloaders(
+    train_paths,
+    val_paths,
+    test_paths,
+    train_labels,
+    val_labels,
+    test_labels,
+    batch_size=32,
+    image_size=224,
+    num_workers=2,
+    resize_images=True,
+):
+    """
+    Crea els Dataset i DataLoader de train, validation i test.
+    """
+
+    train_transform, val_test_transform = get_transforms(
+        image_size=image_size,
+        resize_images=resize_images,
+    )
+
+    train_dataset = ImageDataset(
+        image_paths=train_paths,
+        labels=train_labels,
+        transform=train_transform,
+    )
+
+    val_dataset = ImageDataset(
+        image_paths=val_paths,
+        labels=val_labels,
+        transform=val_test_transform,
+    )
+
+    test_dataset = ImageDataset(
+        image_paths=test_paths,
+        labels=test_labels,
+        transform=val_test_transform,
+    )
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=num_workers > 0,
+        prefetch_factor=4 if num_workers > 0 else None,
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=num_workers > 0,
+        prefetch_factor=4 if num_workers > 0 else None,
+    )
+
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=num_workers > 0,
+        prefetch_factor=4 if num_workers > 0 else None,
+    )
+
+    return train_loader, val_loader, test_loader

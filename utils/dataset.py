@@ -5,13 +5,14 @@ com manipular-les abans de donar-les al model.
 """
 
 
-import torch
 from torch.utils.data import Dataset
+from PIL import Image
 
 class ImageDataset(Dataset):
-    def __init__(self, image_paths, labels): #rep les imatges
+    def __init__(self, image_paths, labels, transform=None): #rep les imatges
         self.image_paths = image_paths
         self.labels = labels
+        self.transform = transform
 
     def __len__(self):
         return len(self.image_paths) #retorna nombre total d'imatges
@@ -27,19 +28,10 @@ class ImageDataset(Dataset):
         return image, label
 
     def load_image(self, image_path):
-
-        
-        # Implement your image loading logic here
-        # For example, you can use PIL or OpenCV to load the image
-        # and return it as a tensor
-        image = torch.tensor(...)  # Replace ... with your image loading code
-        raise NotImplementedError
+        return Image.open(image_path).convert("RGB")
 
     def preprocess_image(self, image):
+        if self.transform is not None:
+            return self.transform(image)
 
-        #AQUI: redimensionar, normalitzar amb mitjanes o sd, data augmentation... 
-        # Implement your image preprocessing logic here
-        # For example, you can apply transformations such as resizing,
-        # normalization, or data augmentation
-        preprocessed_image = image  # Replace with your preprocessing code
-        raise NotImplementedError
+        return image
