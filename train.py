@@ -120,7 +120,8 @@ def train_model(
     model,
     train_loader,
     val_loader,
-    criterion,
+    criterion_train,
+    criterion_eval,
     optimizer,
     config,
     device,
@@ -144,7 +145,7 @@ def train_model(
         train_loss, train_acc = train_one_epoch(
             model=model,
             train_loader=train_loader,
-            criterion=criterion,
+            criterion=criterion_train,
             optimizer=optimizer,
             device=device,
         )
@@ -152,7 +153,7 @@ def train_model(
         val_loss, val_acc = validate_one_epoch(
             model=model,
             val_loader=val_loader,
-            criterion=criterion,
+            criterion=criterion_eval,
             device=device,
         )
 

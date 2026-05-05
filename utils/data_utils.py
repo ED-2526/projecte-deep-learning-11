@@ -489,3 +489,37 @@ def filter_top_k_classes(image_paths, labels, idx_to_class, top_k=14):
     return filtered_paths, filtered_labels, new_class_to_idx, new_idx_to_class
 
 
+#Experiment3:
+
+def compute_class_weights(labels, num_classes, idx_to_class=None):
+    """
+    Calcula pesos de classe a partir de les labels de train.
+
+    Les classes amb menys imatges reben més pes.
+    Les classes amb més imatges reben menys pes.
+
+    Aquests pesos s'utilitzaran a CrossEntropyLoss(weight=...).
+    """
+
+    counts = Counter(labels)
+
+    weights = torch.zeros(num_classes, dtype=torch.float32)
+
+    for class_idx in range(num_classes):
+        weights[class_idx] = 1.0 / counts[class_idx]
+
+    # Normalitzem perquè la mitjana dels pesos sigui aproximadament 1.
+    # Això ajuda a mantenir l'escala de la loss més estable.
+    weights = weights / weights.sum() * num_classes
+
+    print("\n========== CLASS WEIGHTS ==========")
+    for class_idx in range(num_classes):
+        class_name = idx_to_class[class_idx] if idx_to_class is not None else str(class_idx)
+        print(
+            f"{class_name}: "
+            f"count={counts[class_idx]}, "
+            f"weight={weights[class_idx]:.4f}"
+        )
+    print("===================================\n")
+
+    return weights

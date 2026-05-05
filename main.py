@@ -15,6 +15,7 @@ from utils.data_utils import (
     print_split_summary,
     create_dataloaders,
     filter_top_k_classes,
+    compute_class_weights,
 )
 
 from models.transfer_model import create_resnet_model
@@ -48,8 +49,8 @@ def load_checkpoint(model, checkpoint_path, device):
 
 def main():
     config = {
-        "experiment_name": "exp2_resnet18_top14_classes_no_aug_no_class_weights",
-        "dataset_root": "/home/datasets/wikiart/",  # CANVIA AIXÒ SI CAL
+        "experiment_name": "exp3_resnet18_top14_classes_no_aug_yes_class_weights",
+        "dataset_root": "/home/datasets/wikiart/",  
         "model_name": "resnet18",
         "feature_extraction": True,
         "epochs": 10,
@@ -70,6 +71,8 @@ def main():
         "use_augmentation": False,
         "use_top_k_classes": True,
         "top_k_classes": 14,
+        "use_class_weights": True,
+        "use_augmentation": False,
     }
 
     set_seed(config["random_seed"])
@@ -176,8 +179,27 @@ def main():
 
     model = model.to(device)
 
-    # 5. Loss sense pesos de classe
-    criterion = nn.CrossEntropyLoss()
+    # 5. Loss
+    # criterion_train és la loss que fem servir per aprendre.
+    # criterion_eval és la loss "normal" per validation i test.
+
+    criterion_eval = nn.CrossEntropyLoss()
+
+    if config["use_class_weights"]:
+        class_weights = compute_class_weights(
+            labels=train_labels,
+            num_classes=num_classes,
+            idx_to_class=idx_to_class,
+        ).to(device)
+
+        criterion_train = nn.CrossEntropyLoss(weight=class_weights)
+
+        wandb.config.update({
+            "class_weights": class_weights.detach().cpu().tolist(),
+        })
+
+    else:
+        criterion_train = nn.CrossEntropyLoss()
 
     # Només entrenem paràmetres amb requires_grad=True.
     # En feature extraction això serà principalment la capa fc final.
@@ -193,7 +215,8 @@ def main():
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
-        criterion=criterion,
+        criterion_train=criterion_train,
+        criterion_eval=criterion_eval,
         optimizer=optimizer,
         config=config,
         device=device,
@@ -213,12 +236,11 @@ def main():
     test_model(
         model=model,
         test_loader=test_loader,
-        criterion=criterion,
+        criterion=criterion_eval,
         device=device,
         idx_to_class=idx_to_class,
         save_dir=os.path.join("results", "figures", config["experiment_name"]),
     )
-    wandb.finish()
 
 
 if __name__ == "__main__":
