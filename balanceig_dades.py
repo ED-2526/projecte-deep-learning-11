@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # 1. Defineix la ruta on tens descomprimit el dataset
-dataset_path = "/home/edxnG11/dataset_wikiart/raw/" 
+dataset_path = "/home/datasets/wikiart/" 
 
 # Diccionari per guardar { 'Nom_Estil' : quantitat_imatges }
 recompte_classes = {}
@@ -30,6 +30,9 @@ total_classes = len(df)
 print(f"Resum del Dataset:")
 print(f"- Total de classes (Estils): {total_classes}")
 print(f"- Total d'imatges: {total_imatges}")
+print("\nDistribució per classe (de més a menys imatges):")
+for index, row in df.iterrows():
+    print(f"{row['Estil']}: {row['Num_Imatges']} imatges")
 print("-" * 30)
 
 # 5. Creem el gràfic visual (el que posareu a la presentació)
