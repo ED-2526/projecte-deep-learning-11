@@ -2,15 +2,27 @@ import torch.nn as nn
 from torchvision import models
 
 
-def create_resnet_model(num_classes, model_name="resnet18", feature_extraction=True):
+def create_resnet_model(
+    num_classes,
+    model_name="resnet18",
+    feature_extraction=True,
+    partial_finetuning=False,
+):
     """
     Crea una ResNet preentrenada i adapta l'última capa al nostre nombre de classes.
 
-    feature_extraction=True:
-        congela tota la ResNet i només entrena la capa final.
+    Modes principals:
 
-    feature_extraction=False:
-        entrena tota la xarxa.
+    feature_extraction=True, partial_finetuning=False:
+        congela tota la ResNet i només entrena la capa final fc.
+
+    partial_finetuning=True:
+        congela la major part de la ResNet, però descongela layer4 + fc.
+        Això permet adaptar les últimes capes al domini WikiArt.
+
+    feature_extraction=False, partial_finetuning=False:
+        entrena tota la ResNet.
+        No ho fem ara perquè és més costós i té més risc d'overfitting.
     """
 
     if model_name == "resnet18":
@@ -20,11 +32,23 @@ def create_resnet_model(num_classes, model_name="resnet18", feature_extraction=T
     else:
         raise ValueError(f"Model no suportat: {model_name}")
 
-    if feature_extraction:
+    if partial_finetuning:
+        # Primer congelem tota la xarxa.
         for param in model.parameters():
             param.requires_grad = False
 
-    # Canviem la capa final perquè classifiqui els estils de WikiArt
+        # Després descongelem només l'últim bloc de ResNet.
+        # layer4 conté característiques més específiques i és la part que volem adaptar a WikiArt.
+        for param in model.layer4.parameters():
+            param.requires_grad = True
+
+    elif feature_extraction:
+        # Mode anterior: només entrenem la capa final.
+        for param in model.parameters():
+            param.requires_grad = False
+
+    # Canviem la capa final perquè classifiqui els estils de WikiArt.
+    # Aquesta capa sempre queda entrenable per defecte.
     in_features = model.fc.in_features
     model.fc = nn.Linear(in_features, num_classes)
 

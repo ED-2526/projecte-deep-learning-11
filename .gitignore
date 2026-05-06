@@ -131,4 +131,11 @@ dmypy.json
 .pyre/
 
 # Pycharm
-.idea/
+.idea/results/checkpoints/
+*.pth
+*.pt
+*.ckpt
+results/checkpoints/
+*.pth
+*.pt
+*.ckpt

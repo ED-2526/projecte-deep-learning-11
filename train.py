@@ -128,6 +128,7 @@ def train_model(
     checkpoint_path,
     class_to_idx,
     idx_to_class,
+    early_stopping_patience=None,
 ):
     """
     Bucle complet d'entrenament.
@@ -136,6 +137,7 @@ def train_model(
     """
 
     best_val_accuracy = 0.0
+    epochs_without_improvement = 0
 
     epochs = config["epochs"]
 
@@ -186,6 +188,23 @@ def train_model(
             )
 
             print(f"Nou millor model guardat a: {checkpoint_path}")
+        
+        else:
+            epochs_without_improvement += 1
+            print(
+                f"No millora validation accuracy "
+                f"({epochs_without_improvement}/{early_stopping_patience})"
+            )
+
+            if (
+                early_stopping_patience is not None
+                and epochs_without_improvement >= early_stopping_patience
+            ):
+                print(
+                    f"Early stopping activat. "
+                    f"Sense millora durant {early_stopping_patience} epochs."
+                )
+                break
 
     print(f"\nMillor validation accuracy: {best_val_accuracy:.4f}")
 

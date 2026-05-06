@@ -52,10 +52,15 @@ def main():
         "experiment_name": "exp3_resnet18_top14_classes_no_aug_yes_class_weights",
         "dataset_root": "/home/datasets/wikiart/",  
         "model_name": "resnet18",
-        "feature_extraction": True,
-        "epochs": 10,
+        "feature_extraction": False,
+        "partial_finetuning": True,
+
+        "epochs": 15,
         "batch_size": 128,
-        "learning_rate": 1e-3,
+        "learning_rate": 5e-5,
+        "weight_decay": 1e-4,
+        "early_stopping_patience": 3,
+
         "image_size": 224,
         "val_size": 0.15,
         "test_size": 0.15,
@@ -69,10 +74,12 @@ def main():
         "cache_num_workers": 12,
         "use_class_weights": False,
         "use_augmentation": False,
+
         "use_top_k_classes": True,
         "top_k_classes": 14,
-        "use_class_weights": True,
-        "use_augmentation": False,
+
+        "use_class_weights": False,
+        "use_augmentation": True,
     }
 
     set_seed(config["random_seed"])
@@ -168,6 +175,7 @@ def main():
         image_size=config["image_size"],
         num_workers=config["num_workers"],
         resize_images=resize_images_in_dataloader,
+        use_augmentation=config["use_augmentation"],
     )
 
     # 4. Crear model ResNet
@@ -175,9 +183,22 @@ def main():
         num_classes=num_classes,
         model_name=config["model_name"],
         feature_extraction=config["feature_extraction"],
+        partial_finetuning=config["partial_finetuning"],
     )
 
     model = model.to(device)
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    print(f"Total parameters: {total_params}")
+    print(f"Trainable parameters: {trainable_params_count}")
+    print(f"Trainable ratio: {trainable_params_count / total_params:.4f}")
+
+    wandb.config.update({
+        "total_params": total_params,
+        "trainable_params": trainable_params_count,
+        "trainable_ratio": trainable_params_count / total_params,
+    })
 
     # 5. Loss
     # criterion_train és la loss que fem servir per aprendre.
@@ -208,6 +229,7 @@ def main():
     optimizer = optim.Adam(
         trainable_params,
         lr=config["learning_rate"],
+        weight_decay=config["weight_decay"],
     )
 
     # 6. Entrenament amb checkpoint
@@ -223,6 +245,7 @@ def main():
         checkpoint_path=checkpoint_path,
         class_to_idx=class_to_idx,
         idx_to_class=idx_to_class,
+        early_stopping_patience=config["early_stopping_patience"],
     )
 
     # 7. Carregar millor checkpoint abans del test

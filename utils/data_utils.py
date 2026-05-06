@@ -322,21 +322,39 @@ def print_split_summary(train_labels, val_labels, test_labels):
     print("===================================\n")
 
 
-def get_transforms(image_size=224, resize_images=True):
+def get_transforms(image_size=224, resize_images=True, use_augmentation=False):
     """
     Transforms per ResNet preentrenada.
 
+    Si use_augmentation=True:
+        apliquem augmentació suau només a train.
+
     Important:
-    Això NO és data augmentation.
-    Resize + ToTensor + Normalize és preprocessament necessari.
+        validation i test NO tenen augmentació.
     """
 
-    common_transforms = []
+    train_transforms = []
+    val_test_transforms = []
 
     if resize_images:
-        common_transforms.append(transforms.Resize((image_size, image_size)))
+        train_transforms.append(transforms.Resize((image_size, image_size)))
+        val_test_transforms.append(transforms.Resize((image_size, image_size)))
 
-    common_transforms.extend([
+    # Augmentació suau només per train.
+    # No fem canvis molt agressius perquè en WikiArt color/composició poden ser importants.
+    if use_augmentation:
+        train_transforms.extend([
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation(degrees=10),
+            transforms.ColorJitter(
+                brightness=0.1,
+                contrast=0.1,
+                saturation=0.1,
+                hue=0.02,
+            ),
+        ])
+
+    train_transforms.extend([
         transforms.ToTensor(),
         transforms.Normalize(
             mean=[0.485, 0.456, 0.406],
@@ -344,11 +362,18 @@ def get_transforms(image_size=224, resize_images=True):
         ),
     ])
 
-    train_transform = transforms.Compose(common_transforms)
-    val_test_transform = transforms.Compose(common_transforms)
+    val_test_transforms.extend([
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
+    ])
+
+    train_transform = transforms.Compose(train_transforms)
+    val_test_transform = transforms.Compose(val_test_transforms)
 
     return train_transform, val_test_transform
-
 
 def create_dataloaders(
     train_paths,
@@ -361,6 +386,7 @@ def create_dataloaders(
     image_size=224,
     num_workers=2,
     resize_images=True,
+     use_augmentation=False,
 ):
     """
     Crea els Dataset i DataLoader de train, validation i test.
@@ -369,6 +395,7 @@ def create_dataloaders(
     train_transform, val_test_transform = get_transforms(
         image_size=image_size,
         resize_images=resize_images,
+        use_augmentation=use_augmentation,
     )
 
     train_dataset = ImageDataset(
