@@ -7,7 +7,7 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from torchvision import transforms
 from tqdm import tqdm
 
@@ -344,14 +344,20 @@ def get_transforms(image_size=224, resize_images=True, use_augmentation=False):
     # No fem canvis molt agressius perquè en WikiArt color/composició poden ser importants.
     if use_augmentation:
         train_transforms.extend([
+            transforms.RandomResizedCrop(
+                image_size,
+                scale=(0.75, 1.0),
+                ratio=(0.9, 1.1)
+            ),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomRotation(degrees=10),
             transforms.ColorJitter(
-                brightness=0.1,
-                contrast=0.1,
-                saturation=0.1,
+                brightness=0.15,
+                contrast=0.15,
+                saturation=0.12,
                 hue=0.02,
             ),
+            transforms.RandomGrayscale(p=0.05),
         ])
 
     train_transforms.extend([
@@ -386,7 +392,9 @@ def create_dataloaders(
     image_size=224,
     num_workers=2,
     resize_images=True,
-     use_augmentation=False,
+    use_augmentation=False,
+    use_weighted_sampler=False,
+    
 ):
     """
     Crea els Dataset i DataLoader de train, validation i test.
@@ -416,10 +424,18 @@ def create_dataloaders(
         transform=val_test_transform,
     )
 
+    train_sampler = None
+    train_shuffle = True
+
+    if use_weighted_sampler:
+        train_sampler = create_weighted_sampler(train_labels)
+        train_shuffle = False
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=train_shuffle,
+        sampler=train_sampler,
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
         persistent_workers=num_workers > 0,
@@ -533,8 +549,8 @@ def compute_class_weights(labels, num_classes, idx_to_class=None):
     weights = torch.zeros(num_classes, dtype=torch.float32)
 
     for class_idx in range(num_classes):
-        weights[class_idx] = 1.0 / counts[class_idx]
-
+        weights[class_idx] = 1.0 / (counts[class_idx] ** 0.5)
+    
     # Normalitzem perquè la mitjana dels pesos sigui aproximadament 1.
     # Això ajuda a mantenir l'escala de la loss més estable.
     weights = weights / weights.sum() * num_classes
@@ -550,3 +566,30 @@ def compute_class_weights(labels, num_classes, idx_to_class=None):
     print("===================================\n")
 
     return weights
+
+def create_weighted_sampler(labels):
+    """
+    Crea un WeightedRandomSampler per compensar el desbalanceig de classes.
+
+    Cada imatge rep un pes inversament proporcional al nombre d'imatges
+    de la seva classe. Això fa que les classes minoritàries apareguin
+    més sovint durant l'entrenament.
+    """
+
+    counts = Counter(labels)
+
+    sample_weights = []
+    for label in labels:
+        class_count = counts[label]
+        sample_weight = 1.0 / class_count
+        sample_weights.append(sample_weight)
+
+    sample_weights = torch.DoubleTensor(sample_weights)
+
+    sampler = WeightedRandomSampler(
+        weights=sample_weights,
+        num_samples=len(sample_weights),
+        replacement=True,
+    )
+
+    return sampler

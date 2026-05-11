@@ -3,6 +3,7 @@ import os
 import torch
 import wandb
 from tqdm import tqdm
+from sklearn.metrics import f1_score
 
 
 def compute_accuracy(outputs, labels):
@@ -56,6 +57,10 @@ def validate_one_epoch(model, val_loader, criterion, device):
     """
     Avalua el model amb validation.
     Aquí NO aprèn: només mesurem com va.
+
+    A més de loss i accuracy, calculem macro F1.
+    Macro F1 és especialment important amb datasets desbalancejats,
+    perquè dona el mateix pes a totes les classes.
     """
 
     model.eval()
@@ -63,6 +68,9 @@ def validate_one_epoch(model, val_loader, criterion, device):
     running_loss = 0.0
     running_correct = 0
     running_total = 0
+
+    all_preds = []
+    all_labels = []
 
     with torch.no_grad():
         for images, labels in tqdm(val_loader, desc="Validation", leave=False):
@@ -74,14 +82,19 @@ def validate_one_epoch(model, val_loader, criterion, device):
 
             running_loss += loss.item() * images.size(0)
 
-            correct, total = compute_accuracy(outputs, labels)
-            running_correct += correct
-            running_total += total
+            _, preds = torch.max(outputs, dim=1)
+
+            running_correct += (preds == labels).sum().item()
+            running_total += labels.size(0)
+
+            all_preds.extend(preds.cpu().tolist())
+            all_labels.extend(labels.cpu().tolist())
 
     epoch_loss = running_loss / running_total
     epoch_acc = running_correct / running_total
+    epoch_macro_f1 = f1_score(all_labels, all_preds, average="macro")
 
-    return epoch_loss, epoch_acc
+    return epoch_loss, epoch_acc, epoch_macro_f1
 
 
 def save_checkpoint(
@@ -91,6 +104,7 @@ def save_checkpoint(
     epoch,
     val_loss,
     val_accuracy,
+    val_macro_f1,
     config,
     class_to_idx,
     idx_to_class,
@@ -136,7 +150,7 @@ def train_model(
     Guarda checkpoint segons millor validation accuracy.
     """
 
-    best_val_accuracy = 0.0
+    best_val_macro_f1 = 0.0
     epochs_without_improvement = 0
 
     epochs = config["epochs"]
@@ -152,16 +166,16 @@ def train_model(
             device=device,
         )
 
-        val_loss, val_acc = validate_one_epoch(
+        val_loss, val_acc, val_macro_f1 = validate_one_epoch(
             model=model,
-            val_loader=val_loader,
-            criterion=criterion_eval,
-            device=device,
-        )
+        val_loader=val_loader,
+        criterion=criterion_eval,
+        device=device,
+)
 
         print(
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
-            f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
+            f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | Val Macro F1: {val_macro_f1:.4f}"
         )
 
         wandb.log({
@@ -170,10 +184,12 @@ def train_model(
             "train_accuracy": train_acc,
             "val_loss": val_loss,
             "val_accuracy": val_acc,
+            "val_macro_f1": val_macro_f1,
         })
 
-        if val_acc > best_val_accuracy:
-            best_val_accuracy = val_acc
+        if val_macro_f1 > best_val_macro_f1:
+            best_val_macro_f1 = val_macro_f1
+            epochs_without_improvement = 0
 
             save_checkpoint(
                 checkpoint_path=checkpoint_path,
@@ -182,6 +198,7 @@ def train_model(
                 epoch=epoch,
                 val_loss=val_loss,
                 val_accuracy=val_acc,
+                val_macro_f1=val_macro_f1,
                 config=config,
                 class_to_idx=class_to_idx,
                 idx_to_class=idx_to_class,
@@ -206,6 +223,6 @@ def train_model(
                 )
                 break
 
-    print(f"\nMillor validation accuracy: {best_val_accuracy:.4f}")
+    print(f"\nMillor validation macro F1: {best_val_macro_f1:.4f}")
 
-    return best_val_accuracy
+    return best_val_macro_f1

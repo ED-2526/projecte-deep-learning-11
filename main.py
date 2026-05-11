@@ -1,3 +1,4 @@
+from logging import config
 import os
 import random
 
@@ -49,8 +50,9 @@ def load_checkpoint(model, checkpoint_path, device):
 
 def main():
     config = {
-        "experiment_name": "exp3_resnet18_top14_classes_no_aug_yes_class_weights",
-        "dataset_root": "/home/datasets/wikiart/",  
+        "experiment_name": "exp9_top14_partial_ft_label_smoothing_rich_aug_soft_class_weights",
+
+        "dataset_root": "/home/datasets/wikiart/",
         "model_name": "resnet18",
         "feature_extraction": False,
         "partial_finetuning": True,
@@ -58,7 +60,7 @@ def main():
         "epochs": 15,
         "batch_size": 128,
         "learning_rate": 5e-5,
-        "weight_decay": 1e-4,
+        "weight_decay": 5e-4,
         "early_stopping_patience": 3,
 
         "image_size": 224,
@@ -66,20 +68,24 @@ def main():
         "test_size": 0.15,
         "random_seed": 42,
         "num_workers": 8,
-        "remove_duplicates": False,
-        "check_corrupted": False,
+
+        "remove_duplicates": True,
+        "check_corrupted": True,
+
         "use_resized_cache": True,
         "resized_cache_root": "/tmp/wikiart_224",
         "force_rebuild_cache": False,
         "cache_num_workers": 12,
-        "use_class_weights": False,
-        "use_augmentation": False,
 
         "use_top_k_classes": True,
         "top_k_classes": 14,
 
-        "use_class_weights": False,
+        "use_class_weights": True,
         "use_augmentation": True,
+        "use_weighted_sampler": False,
+
+        "use_label_smoothing": True,
+        "label_smoothing": 0.1,
     }
 
     set_seed(config["random_seed"])
@@ -176,6 +182,7 @@ def main():
         num_workers=config["num_workers"],
         resize_images=resize_images_in_dataloader,
         use_augmentation=config["use_augmentation"],
+        use_weighted_sampler=config["use_weighted_sampler"],
     )
 
     # 4. Crear model ResNet
@@ -213,14 +220,19 @@ def main():
             idx_to_class=idx_to_class,
         ).to(device)
 
-        criterion_train = nn.CrossEntropyLoss(weight=class_weights)
+        criterion_train = nn.CrossEntropyLoss(
+            weight=class_weights,
+            label_smoothing=config["label_smoothing"] if config["use_label_smoothing"] else 0.0,
+        )
 
         wandb.config.update({
             "class_weights": class_weights.detach().cpu().tolist(),
         })
 
     else:
-        criterion_train = nn.CrossEntropyLoss()
+        criterion_train = nn.CrossEntropyLoss(
+            label_smoothing=config["label_smoothing"] if config["use_label_smoothing"] else 0.0,
+        )
 
     # Només entrenem paràmetres amb requires_grad=True.
     # En feature extraction això serà principalment la capa fc final.
