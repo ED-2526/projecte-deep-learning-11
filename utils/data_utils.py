@@ -1,5 +1,6 @@
 import os
 import hashlib
+import random
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 
@@ -532,6 +533,65 @@ def filter_top_k_classes(image_paths, labels, idx_to_class, top_k=14):
     return filtered_paths, filtered_labels, new_class_to_idx, new_idx_to_class
 
 
+#Experiment11
+
+def cap_images_per_class(image_paths, labels, idx_to_class, max_images_per_class=6000, random_seed=42):
+    """
+    Limita el nombre màxim d'imatges per classe.
+
+    Exemple:
+        si Impressionism té 12000 imatges i max_images_per_class=6000,
+        en conservem només 6000.
+
+    Les classes amb menys de max_images_per_class imatges es mantenen igual.
+
+    Important:
+        això redueix el pes de les classes majoritàries
+        sense repetir imatges minoritàries ni tocar la loss.
+    """
+
+    rng = random.Random(random_seed)
+
+    # Agrupem els índexs de les imatges per classe.
+    indices_by_class = {}
+
+    for idx, label in enumerate(labels):
+        if label not in indices_by_class:
+            indices_by_class[label] = []
+
+        indices_by_class[label].append(idx)
+
+    selected_indices = []
+
+    print(f"\nAplicarem cap màxim de {max_images_per_class} imatges per classe:")
+
+    for label, indices in indices_by_class.items():
+        class_name = idx_to_class[label]
+        original_count = len(indices)
+
+        if original_count > max_images_per_class:
+            selected = rng.sample(indices, max_images_per_class)
+            print(f"  {class_name}: {original_count} -> {max_images_per_class}")
+        else:
+            selected = indices
+            print(f"  {class_name}: {original_count} -> {original_count}")
+
+        selected_indices.extend(selected)
+
+    # Ordenem per tenir una sortida estable.
+    selected_indices = sorted(selected_indices)
+
+    capped_paths = [image_paths[i] for i in selected_indices]
+    capped_labels = [labels[i] for i in selected_indices]
+
+    print(
+        f"Després del cap: {len(capped_paths)} imatges "
+        f"i {len(set(capped_labels))} classes.\n"
+    )
+
+    return capped_paths, capped_labels
+
+
 #Experiment3:
 
 def compute_class_weights(labels, num_classes, idx_to_class=None):
@@ -593,3 +653,5 @@ def create_weighted_sampler(labels):
     )
 
     return sampler
+
+

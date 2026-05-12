@@ -1,4 +1,3 @@
-from logging import config
 import os
 import random
 
@@ -16,6 +15,7 @@ from utils.data_utils import (
     print_split_summary,
     create_dataloaders,
     filter_top_k_classes,
+    cap_images_per_class,
     compute_class_weights,
 )
 
@@ -69,21 +69,24 @@ def main():
         "random_seed": 42,
         "num_workers": 8,
 
-        "remove_duplicates": True,
-        "check_corrupted": True,
+        "remove_duplicates": False,
+        "check_corrupted": False,
 
         "use_resized_cache": True,
         "resized_cache_root": "/tmp/wikiart_224",
         "force_rebuild_cache": False,
         "cache_num_workers": 12,
-
+        
         "use_top_k_classes": True,
         "top_k_classes": 14,
 
-        "use_class_weights": True,
-        "use_augmentation": True,
+        "use_class_cap": True,
+        "max_images_per_class": 6000,
+
+        "use_class_weights": False,
         "use_weighted_sampler": False,
 
+        "use_augmentation": True,
         "use_label_smoothing": True,
         "label_smoothing": 0.1,
     }
@@ -149,6 +152,25 @@ def main():
             idx_to_class=idx_to_class,
             stats=stats,
         )
+    # 1.2. Experiment 11: limitar les classes majoritàries
+    if config["use_class_cap"]:
+        image_paths, labels = cap_images_per_class(
+            image_paths=image_paths,
+            labels=labels,
+            idx_to_class=idx_to_class,
+            max_images_per_class=config["max_images_per_class"],
+            random_seed=config["random_seed"],
+        )
+
+        print("\nResum després de capar classes majoritàries:")
+        print_dataset_summary(
+            image_paths=image_paths,
+            labels=labels,
+            class_to_idx=class_to_idx,
+            idx_to_class=idx_to_class,
+            stats=stats,
+        )
+
 
     num_classes = len(class_to_idx)
     print(f"Nombre de classes utilitzades: {num_classes}")
@@ -156,8 +178,11 @@ def main():
     wandb.config.update({
         "num_classes": num_classes,
         "num_images": len(image_paths),
+        "class_cap_applied": config["use_class_cap"],
+        "max_images_per_class": config["max_images_per_class"] if config["use_class_cap"] else None,
     })
 
+    
     # 2. Split train / validation / test
     train_paths, val_paths, test_paths, train_labels, val_labels, test_labels = split_dataset(
         image_paths=image_paths,
@@ -238,7 +263,7 @@ def main():
     # En feature extraction això serà principalment la capa fc final.
     trainable_params = filter(lambda p: p.requires_grad, model.parameters())
 
-    optimizer = optim.Adam(
+    optimizer = optim.AdamW(
         trainable_params,
         lr=config["learning_rate"],
         weight_decay=config["weight_decay"],
@@ -277,6 +302,7 @@ def main():
         save_dir=os.path.join("results", "figures", config["experiment_name"]),
     )
 
-
+    wandb.finish()
+    
 if __name__ == "__main__":
     main()

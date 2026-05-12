@@ -139,3 +139,7 @@ results/checkpoints/
 *.pth
 *.pt
 *.ckpt
+results/
+*.pth
+*.pt
+*.ckpt

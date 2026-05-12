@@ -122,6 +122,7 @@ def save_checkpoint(
         "optimizer_state_dict": optimizer.state_dict(),
         "val_loss": val_loss,
         "val_accuracy": val_accuracy,
+        "val_macro_f1": val_macro_f1,
         "config": config,
         "class_to_idx": class_to_idx,
         "idx_to_class": idx_to_class,
@@ -147,7 +148,7 @@ def train_model(
     """
     Bucle complet d'entrenament.
 
-    Guarda checkpoint segons millor validation accuracy.
+    Guarda checkpoint segons millor validation macro F1.
     """
 
     best_val_macro_f1 = 0.0
@@ -168,10 +169,10 @@ def train_model(
 
         val_loss, val_acc, val_macro_f1 = validate_one_epoch(
             model=model,
-        val_loader=val_loader,
-        criterion=criterion_eval,
-        device=device,
-)
+            val_loader=val_loader,
+            criterion=criterion_eval,
+            device=device,
+        )
 
         print(
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
@@ -209,7 +210,7 @@ def train_model(
         else:
             epochs_without_improvement += 1
             print(
-                f"No millora validation accuracy "
+                f"No millora validation macro F1 "
                 f"({epochs_without_improvement}/{early_stopping_patience})"
             )
 
