@@ -50,20 +50,20 @@ def load_checkpoint(model, checkpoint_path, device):
 
 def main():
     config = {
-        "experiment_name": "exp9_top14_partial_ft_label_smoothing_rich_aug_soft_class_weights",
+        "experiment_name": "exp14_top14_partial_ft_resnet50",
 
         "dataset_root": "/home/datasets/wikiart/",
-        "model_name": "resnet18",
+        "model_name": "resnet50",
         "feature_extraction": False,
         "partial_finetuning": True,
 
         "epochs": 15,
-        "batch_size": 128,
-        "learning_rate": 5e-5,
-        "weight_decay": 5e-4,
+        "batch_size": 64,
+        "learning_rate": 2e-5,
+        "weight_decay": 1e-4,
         "early_stopping_patience": 3,
 
-        "image_size": 224,
+        "image_size": 336,
         "val_size": 0.15,
         "test_size": 0.15,
         "random_seed": 42,
@@ -73,22 +73,27 @@ def main():
         "check_corrupted": False,
 
         "use_resized_cache": True,
-        "resized_cache_root": "/tmp/wikiart_224",
+        "resized_cache_root": "/tmp/wikiart_336",
         "force_rebuild_cache": False,
         "cache_num_workers": 12,
         
         "use_top_k_classes": True,
         "top_k_classes": 14,
 
-        "use_class_cap": True,
-        "max_images_per_class": 6000,
+        "use_class_cap": False,
+        "max_images_per_class": None,
 
         "use_class_weights": False,
         "use_weighted_sampler": False,
 
         "use_augmentation": True,
         "use_label_smoothing": True,
-        "label_smoothing": 0.1,
+        "label_smoothing": 0.05,
+
+        "use_scheduler": True,
+        "scheduler_factor": 0.5,
+        "scheduler_patience": 1,
+        "scheduler_min_lr": 1e-6,
     }
 
     set_seed(config["random_seed"])
@@ -268,6 +273,17 @@ def main():
         lr=config["learning_rate"],
         weight_decay=config["weight_decay"],
     )
+    #Experiment 14: scheduler de reducció de lr quan la val acc no millora. Molt útil per partial finetuning.
+    scheduler = None
+
+    if config["use_scheduler"]:
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="max",
+            factor=config["scheduler_factor"],
+            patience=config["scheduler_patience"],
+            min_lr=config["scheduler_min_lr"],
+        )
 
     # 6. Entrenament amb checkpoint
     train_model(
@@ -277,6 +293,7 @@ def main():
         criterion_train=criterion_train,
         criterion_eval=criterion_eval,
         optimizer=optimizer,
+        scheduler=scheduler,
         config=config,
         device=device,
         checkpoint_path=checkpoint_path,

@@ -138,6 +138,7 @@ def train_model(
     criterion_train,
     criterion_eval,
     optimizer,
+    scheduler,
     config,
     device,
     checkpoint_path,
@@ -174,9 +175,10 @@ def train_model(
             device=device,
         )
 
+        current_lr = optimizer.param_groups[0]["lr"]
         print(
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
-            f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | Val Macro F1: {val_macro_f1:.4f}"
+            f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | Val Macro F1: {val_macro_f1:.4f}| LR: {current_lr:.2e}"
         )
 
         wandb.log({
@@ -186,7 +188,10 @@ def train_model(
             "val_loss": val_loss,
             "val_accuracy": val_acc,
             "val_macro_f1": val_macro_f1,
+            "learning_rate": current_lr,
         })
+        if scheduler is not None:
+            scheduler.step(val_macro_f1)
 
         if val_macro_f1 > best_val_macro_f1:
             best_val_macro_f1 = val_macro_f1
