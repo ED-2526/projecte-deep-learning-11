@@ -28,7 +28,8 @@ class ImageDataset(Dataset):
         return image, label
 
     def load_image(self, image_path):
-        return Image.open(image_path).convert("RGB")
+        with Image.open(image_path) as image:
+            return image.convert("RGB")
 
     def preprocess_image(self, image):
         if self.transform is not None:

@@ -57,15 +57,15 @@ def main():
         "feature_extraction": False,
         "partial_finetuning": True,
 
-        "epochs": 15,
+        "epochs": 20,
         "batch_size": 64,
         "learning_rate": 2e-5,
         "weight_decay": 1e-4,
         "early_stopping_patience": 3,
 
         "image_size": 336,
-        "val_size": 0.15,
-        "test_size": 0.15,
+        "val_size": 0.10,
+        "test_size": 0.05,
         "random_seed": 42,
         "num_workers": 8,
 

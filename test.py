@@ -16,33 +16,35 @@ def test_model(model, test_loader, criterion, device, idx_to_class=None, save_di
 
     model.eval()
 
-    running_loss = 0.0
-    running_correct = 0
+    running_loss = torch.zeros((), device=device, dtype=torch.float64)
+    running_correct = torch.zeros((), device=device, dtype=torch.int64)
     running_total = 0
 
     all_preds = []
     all_labels = []
 
-    with torch.no_grad():
-        for images, labels in tqdm(test_loader, desc="Testing"):
+    with torch.inference_mode():
+        for images, labels in tqdm(test_loader, desc="Testing", mininterval=1.0):
             images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
 
             outputs = model(images)
             loss = criterion(outputs, labels)
 
-            running_loss += loss.item() * images.size(0)
+            running_loss += loss.double() * images.size(0)
 
-            _, preds = torch.max(outputs, dim=1)
+            preds = outputs.argmax(dim=1)
 
-            running_correct += (preds == labels).sum().item()
+            running_correct += (preds == labels).sum()
             running_total += labels.size(0)
 
-            all_preds.extend(preds.cpu().tolist())
-            all_labels.extend(labels.cpu().tolist())
+            all_preds.append(preds)
+            all_labels.append(labels)
 
-    test_loss = running_loss / running_total
-    test_acc = running_correct / running_total
+    test_loss = (running_loss / running_total).item()
+    test_acc = (running_correct.double() / running_total).item()
+    all_preds = torch.cat(all_preds).cpu().tolist()
+    all_labels = torch.cat(all_labels).cpu().tolist()
     macro_f1 = f1_score(all_labels, all_preds, average="macro")
     weighted_f1 = f1_score(all_labels, all_preds, average="weighted")
 

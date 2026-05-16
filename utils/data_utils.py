@@ -140,10 +140,15 @@ def prepare_resized_cache_dataset(
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
             results = executor.map(resize_and_save_cached_image, worker_args)
 
-            for result in tqdm(results, total=len(worker_args), desc="Caching resized images"):
+            for result in tqdm(
+                results,
+                total=len(worker_args),
+                desc="Caching resized images",
+                mininterval=1.0,
+            ):
                 stats[result] += 1
     else:
-        for args in tqdm(worker_args, desc="Caching resized images"):
+        for args in tqdm(worker_args, desc="Caching resized images", mininterval=1.0):
             result = resize_and_save_cached_image(args)
             stats[result] += 1
 
@@ -653,5 +658,4 @@ def create_weighted_sampler(labels):
     )
 
     return sampler
-
 

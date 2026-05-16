@@ -25,15 +25,15 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
 
     model.train()
 
-    running_loss = 0.0
-    running_correct = 0
+    running_loss = torch.zeros((), device=device, dtype=torch.float64)
+    running_correct = torch.zeros((), device=device, dtype=torch.int64)
     running_total = 0
 
-    for images, labels in tqdm(train_loader, desc="Training", leave=False):
+    for images, labels in tqdm(train_loader, desc="Training", leave=False, mininterval=1.0):
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
 
         outputs = model(images)
         loss = criterion(outputs, labels)
@@ -41,14 +41,14 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
         loss.backward()
         optimizer.step()
 
-        running_loss += loss.item() * images.size(0)
+        running_loss += loss.detach().double() * images.size(0)
 
-        correct, total = compute_accuracy(outputs, labels)
-        running_correct += correct
-        running_total += total
+        preds = outputs.detach().argmax(dim=1)
+        running_correct += (preds == labels).sum()
+        running_total += labels.size(0)
 
-    epoch_loss = running_loss / running_total
-    epoch_acc = running_correct / running_total
+    epoch_loss = (running_loss / running_total).item()
+    epoch_acc = (running_correct.double() / running_total).item()
 
     return epoch_loss, epoch_acc
 
@@ -65,33 +65,35 @@ def validate_one_epoch(model, val_loader, criterion, device):
 
     model.eval()
 
-    running_loss = 0.0
-    running_correct = 0
+    running_loss = torch.zeros((), device=device, dtype=torch.float64)
+    running_correct = torch.zeros((), device=device, dtype=torch.int64)
     running_total = 0
 
     all_preds = []
     all_labels = []
 
-    with torch.no_grad():
-        for images, labels in tqdm(val_loader, desc="Validation", leave=False):
+    with torch.inference_mode():
+        for images, labels in tqdm(val_loader, desc="Validation", leave=False, mininterval=1.0):
             images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
 
             outputs = model(images)
             loss = criterion(outputs, labels)
 
-            running_loss += loss.item() * images.size(0)
+            running_loss += loss.double() * images.size(0)
 
-            _, preds = torch.max(outputs, dim=1)
+            preds = outputs.argmax(dim=1)
 
-            running_correct += (preds == labels).sum().item()
+            running_correct += (preds == labels).sum()
             running_total += labels.size(0)
 
-            all_preds.extend(preds.cpu().tolist())
-            all_labels.extend(labels.cpu().tolist())
+            all_preds.append(preds)
+            all_labels.append(labels)
 
-    epoch_loss = running_loss / running_total
-    epoch_acc = running_correct / running_total
+    epoch_loss = (running_loss / running_total).item()
+    epoch_acc = (running_correct.double() / running_total).item()
+    all_preds = torch.cat(all_preds).cpu().tolist()
+    all_labels = torch.cat(all_labels).cpu().tolist()
     epoch_macro_f1 = f1_score(all_labels, all_preds, average="macro")
 
     return epoch_loss, epoch_acc, epoch_macro_f1
